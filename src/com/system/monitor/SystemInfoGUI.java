@@ -2,7 +2,7 @@ package com.system.monitor;
 
 import java.awt.*;
 import javax.swing.*;
-import com.systeminfo.SystemInfo;
+import com.systeminfo.SystemInfoFetcher;
 
 public class SystemInfoGUI {
 
@@ -32,7 +32,7 @@ public class SystemInfoGUI {
         JPanel memPanel = createMetricPanel("Memory Usage");
         JPanel diskPanel = createMetricPanel("Disk Usage");
         JPanel gpuPanel = createMetricPanel("GPU Usage");
-        JPanel networkPanel = createMetricPanel("Network Usage");
+        JPanel networkPanel = createMetricPanel("WIFI Usage");
         
         mainPanel.add(cpuPanel);
         mainPanel.add(memPanel);
@@ -44,11 +44,11 @@ public class SystemInfoGUI {
 
 
         Timer timer = new Timer(1000, e -> {
-            updateMetric(cpuPanel, SystemInfo.getCPUUsage());
-            updateMetric(memPanel, SystemInfo.getMemoryUsage());
-            updateMetric(diskPanel, SystemInfo.getDiskUsage());
-            updateMetric(gpuPanel, SystemInfo.getGPUUsage());
-            updateMetric(networkPanel, SystemInfo.getNetworkUsage());
+            updateMetric(cpuPanel, SystemInfoFetcher.getCPUUsage(), SystemInfoFetcher.getCPUInfo());
+            updateMetric(memPanel, SystemInfoFetcher.getMemoryUsage(), SystemInfoFetcher.getMemoryInfo());
+            updateMetric(diskPanel, SystemInfoFetcher.getDiskUsage(), SystemInfoFetcher.getDiskInfo());
+            updateMetric(gpuPanel, SystemInfoFetcher.getGPUUsage(), SystemInfoFetcher.getGPUInfo());
+            updateMetric(networkPanel, SystemInfoFetcher.getWifiUsage(), SystemInfoFetcher.getWifiInfo());
 
         });
 
@@ -81,43 +81,63 @@ public class SystemInfoGUI {
         percent.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         percent.setForeground(Color.WHITE);
         percent.setAlignmentX(Component.LEFT_ALIGNMENT);
+        
+        JLabel infoLabel = new JLabel("Fetching info...");
+        infoLabel.setFont(new Font("Segoe UI", Font.ITALIC, 13));
+        infoLabel.setForeground(Color.DARK_GRAY);
+        infoLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         panel.add(label);
         panel.add(Box.createRigidArea(new Dimension(0, 5))); // spacing
         panel.add(progressBar);
         panel.add(Box.createRigidArea(new Dimension(0, 3)));
         panel.add(percent);
+        panel.add(Box.createRigidArea(new Dimension(0, 3)));
+        panel.add(infoLabel);
 
         // Store references
         panel.putClientProperty("progressBar", progressBar);
         panel.putClientProperty("percentLabel", percent);
+        panel.putClientProperty("infoLabel", infoLabel);
 
         return panel;
     }
 
 
-    private void updateMetric(JPanel panel, int targetValue) {
+    private void updateMetric(JPanel panel, int targetValue, String infoText) {
         JProgressBar bar = (JProgressBar) panel.getClientProperty("progressBar");
         JLabel percent = (JLabel) panel.getClientProperty("percentLabel");
+        JLabel infoLabel = (JLabel) panel.getClientProperty("infoLabel");
 
-        if (bar == null || percent == null) return;
+        if (bar == null || percent == null || infoLabel == null) return;
 
-        int[] current = { bar.getValue() }; // mutable holder
+//        int[] current = { bar.getValue() }; // mutable holder
+//
+//        Timer animation = new Timer(15, null); // update every 15ms
+//        animation.addActionListener(e -> {
+//            if (current[0] < targetValue) current[0]++;
+//            else if (current[0] > targetValue) current[0]--;
+//            else ((Timer) e.getSource()).stop();
+//
+//            bar.setValue(current[0]);
+//            percent.setText(current[0] + "%");
+//
+//            if (current[0] > 80) bar.setForeground(Color.RED);
+//            else if (current[0] > 60) bar.setForeground(Color.ORANGE);
+//            else bar.setForeground(new Color(0, 180, 0));
+//            
+//            infoLabel.setText(infoText);
+//        });
+//        animation.start();
+        
+        bar.setValue(targetValue);
+        percent.setText(targetValue + "%");
 
-        Timer animation = new Timer(15, null); // update every 15ms
-        animation.addActionListener(e -> {
-            if (current[0] < targetValue) current[0]++;
-            else if (current[0] > targetValue) current[0]--;
-            else ((Timer) e.getSource()).stop();
+        if (targetValue > 80) bar.setForeground(Color.RED);
+        else if (targetValue > 60) bar.setForeground(Color.ORANGE);
+        else bar.setForeground(new Color(0, 180, 0));
 
-            bar.setValue(current[0]);
-            percent.setText(current[0] + "%");
-
-            if (current[0] > 80) bar.setForeground(Color.RED);
-            else if (current[0] > 60) bar.setForeground(Color.ORANGE);
-            else bar.setForeground(new Color(0, 180, 0));
-        });
-        animation.start();
+        infoLabel.setText(infoText);
     }
 
 
