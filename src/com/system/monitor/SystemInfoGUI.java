@@ -1,6 +1,8 @@
 package com.system.monitor;
 
 import java.awt.*;
+import java.util.concurrent.*;
+
 import javax.swing.*;
 import com.systeminfo.SystemInfoFetcher;
 import org.jfree.chart.*;
@@ -15,6 +17,10 @@ public class SystemInfoGUI {
     private TimeSeries diskSeries = new TimeSeries("Disk");
     private TimeSeries gpuSeries = new TimeSeries("GPU");
     private TimeSeries wifiSeries = new TimeSeries("Wi-Fi");
+    private ScheduledExecutorService scheduler;
+    private int gcCounter = 0;
+
+    
     public SystemInfoGUI() {
         cpuSeries.setMaximumItemAge(10000);
         memSeries.setMaximumItemAge(10000);
@@ -59,17 +65,53 @@ public class SystemInfoGUI {
         frame.add(tabs, BorderLayout.CENTER);
 
 
-        Timer timer = new Timer(500, e -> {
-            updateMetric(cpuPanel, SystemInfoFetcher.getCPUUsage(), SystemInfoFetcher.getCPUInfo(), cpuSeries);
-            updateMetric(memPanel, SystemInfoFetcher.getMemoryUsage(), SystemInfoFetcher.getMemoryInfo(), memSeries);
-            updateMetric(diskPanel, SystemInfoFetcher.getDiskUsage(), SystemInfoFetcher.getDiskInfo(), diskSeries);
-            updateMetric(gpuPanel, SystemInfoFetcher.getGPUUsage(), SystemInfoFetcher.getGPUInfo(), gpuSeries);
-            updateMetric(networkPanel, SystemInfoFetcher.getWifiUsage(), SystemInfoFetcher.getWifiInfo(), wifiSeries);
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                // 1️⃣ Fetch system stats (heavy work happens off the Swing thread)
+                int cpuVal = SystemInfoFetcher.getCPUUsage();
+                int memVal = SystemInfoFetcher.getMemoryUsage();
+                int diskVal = SystemInfoFetcher.getDiskUsage();
+                int gpuVal = SystemInfoFetcher.getGPUUsage();
+                int wifiVal = SystemInfoFetcher.getWifiUsage();
 
+                String cpuInfo = SystemInfoFetcher.getCPUInfo();
+                String memInfo = SystemInfoFetcher.getMemoryInfo();
+                String diskInfo = SystemInfoFetcher.getDiskInfo();
+                String gpuInfo = SystemInfoFetcher.getGPUInfo();
+                String wifiInfo = SystemInfoFetcher.getWifiInfo();
+
+                // 2️⃣ Update GUI safely
+                SwingUtilities.invokeLater(() -> {
+                    updateMetric(cpuPanel, cpuVal, cpuInfo, cpuSeries);
+                    updateMetric(memPanel, memVal, memInfo, memSeries);
+                    updateMetric(diskPanel, diskVal, diskInfo, diskSeries);
+                    updateMetric(gpuPanel, gpuVal, gpuInfo, gpuSeries);
+                    updateMetric(networkPanel, wifiVal, wifiInfo, wifiSeries);
+                });
+
+                // 3️⃣ Suggest GC only occasionally (e.g., every 1 min)
+                gcCounter++;
+                if (gcCounter >= 30) { // 30 × 2 s = 60 s
+                    System.gc();
+                    gcCounter = 0;
+                }
+
+            } catch (Exception ex) {
+                ex.printStackTrace(); // Keeps scheduler alive even if one fetch fails
+            }
+
+        }, 0, 2, TimeUnit.SECONDS);
+
+        frame.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                if (scheduler != null && !scheduler.isShutdown()) {
+                    scheduler.shutdownNow();
+                }
+            }
         });
 
-        timer.setInitialDelay(500);
-        timer.start();
 
         frame.setVisible(true);
     }
