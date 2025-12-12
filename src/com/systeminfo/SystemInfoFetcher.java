@@ -16,6 +16,8 @@ public class SystemInfoFetcher {
 	private static long lastRxBytes = 0;
 	private static long lastTxBytes = 0;
 	private static long lastCheckTime = System.currentTimeMillis();
+	private static final String OS = System.getProperty("os.name").toLowerCase();
+
 	
 	
 	public static String getOSInfo()
@@ -105,16 +107,19 @@ public class SystemInfoFetcher {
 
 
 	public static String getWifiInfo() {
-	    StringBuilder wifiInfo = new StringBuilder();
-	    try {
-	        // Basic info (SSID, Signal, etc.)
-	        ProcessBuilder pb = new ProcessBuilder("netsh", "wlan", "show", "interfaces");
-	        pb.redirectErrorStream(true);
-	        Process process = pb.start();
+	    StringBuilder wifiInfo = new StringBuilder("<html><b>=== Wi-Fi Information ===</b><br>");
 
-	        String ssid = "N/A", signal = "N/A";
-	        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+	    try {
+	        if (OS.contains("win")) {
+	            // WINDOWS IMPLEMENTATION (existing)
+	            ProcessBuilder pb = new ProcessBuilder("netsh", "wlan", "show", "interfaces");
+	            pb.redirectErrorStream(true);
+	            Process process = pb.start();
+
+	            String ssid = "N/A", signal = "N/A";
+	            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
 	            String line;
+
 	            while ((line = reader.readLine()) != null) {
 	                line = line.trim();
 	                if (line.startsWith("SSID") && !line.startsWith("SSID broadcast"))
@@ -122,56 +127,54 @@ public class SystemInfoFetcher {
 	                else if (line.startsWith("Signal"))
 	                    signal = line.split(":", 2)[1].trim();
 	            }
+	            reader.close();
+	            process.waitFor();
+
+	            wifiInfo.append("SSID: ").append(ssid).append("<br>");
+	            wifiInfo.append("Signal: ").append(signal).append("<br>");
 	        }
-	        process.waitFor();
 
-	        // Real-time throughput using netstat
-	        ProcessBuilder pb2 = new ProcessBuilder("netstat", "-e");
-	        pb2.redirectErrorStream(true);
-	        Process proc2 = pb2.start();
+	        else if (OS.contains("linux")) {
+	            // LINUX IMPLEMENTATION (NEW)
+	            ProcessBuilder pb = new ProcessBuilder("nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi");
+	            pb.redirectErrorStream(true);
+	            Process process = pb.start();
 
-	        long rxBytes = 0, txBytes = 0;
-	        try (BufferedReader r = new BufferedReader(new InputStreamReader(proc2.getInputStream()))) {
-	            String l;
-	            while ((l = r.readLine()) != null) {
-	                if (l.trim().startsWith("Bytes")) {
-	                    String[] parts = l.trim().split("\\s+");
+	            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+	            String line;
+	            String ssid = "N/A";
+	            String signal = "N/A";
+
+	            while ((line = reader.readLine()) != null) {
+	                // Format: yes:MyWifi:70
+	                if (line.startsWith("yes:")) {
+	                    String[] parts = line.split(":");
 	                    if (parts.length >= 3) {
-	                        rxBytes = Long.parseLong(parts[1]);
-	                        txBytes = Long.parseLong(parts[2]);
+	                        ssid = parts[1];
+	                        signal = parts[2] + "%";
 	                    }
 	                    break;
 	                }
 	            }
-	        }
-	        proc2.waitFor();
+	            reader.close();
+	            process.waitFor();
 
-	        long now = System.currentTimeMillis();
-	        long timeDiff = now - lastCheckTime;
-
-	        double rxMbps = 0, txMbps = 0;
-	        if (timeDiff > 0 && lastRxBytes > 0) {
-	            rxMbps = ((rxBytes - lastRxBytes) * 8.0 / (1024 * 1024)) * (1000.0 / timeDiff);
-	            txMbps = ((txBytes - lastTxBytes) * 8.0 / (1024 * 1024)) * (1000.0 / timeDiff);
+	            wifiInfo.append("SSID: ").append(ssid).append("<br>");
+	            wifiInfo.append("Signal: ").append(signal).append("<br>");
 	        }
 
-	        lastRxBytes = rxBytes;
-	        lastTxBytes = txBytes;
-	        lastCheckTime = now;
-
-	        wifiInfo.append("<html><b>=== Wi-Fi Information ===</b><br>")
-	                .append("SSID: ").append(ssid).append("<br>")
-	                .append("Signal: ").append(signal).append("<br>")
-	                .append(String.format("Download Speed: %.2f Mbps<br>", rxMbps))
-	                .append(String.format("Upload Speed: %.2f Mbps<br>", txMbps))
-	                .append("</html>");
+	        else {
+	            wifiInfo.append("Unsupported OS<br>");
+	        }
 
 	    } catch (Exception e) {
-	        wifiInfo.append("<html>Error fetching Wi-Fi info<br>").append(e.getMessage()).append("</html>");
+	        wifiInfo.append("Error: ").append(e.getMessage()).append("<br>");
 	    }
 
+	    wifiInfo.append("</html>");
 	    return wifiInfo.toString();
 	}
+
 	
 	public static int getCPUUsage() {
 		long[] ticks = cpu.getSystemCpuLoadTicks();   // current snapshot
@@ -221,7 +224,19 @@ public class SystemInfoFetcher {
 
     public static int getWifiUsage() {
         try {
-            // Use ProcessBuilder instead of deprecated Runtime.exec()
+            if (OS.contains("win")) {
+                return getWifiUsageWindows();
+            } else if (OS.contains("linux")) {
+                return getWifiUsageLinux();
+            } else {
+                return 0;
+            }
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+    private static int getWifiUsageWindows() {
+        try {
             ProcessBuilder pb = new ProcessBuilder("netstat", "-e");
             pb.redirectErrorStream(true);
             Process process = pb.start();
@@ -261,19 +276,55 @@ public class SystemInfoFetcher {
             lastTxBytes = bytesSent;
             lastCheckTime = now;
 
-            // Calculate bytes/sec
             double bytesPerSec = (rxDiff + txDiff) * 1000.0 / timeDiff;
-            double mbps = bytesPerSec * 8 / (1024 * 1024); // Convert to Mbps
+            double mbps = bytesPerSec * 8 / (1024 * 1024);
 
-            // Adjust this based on your Wi-Fi speed
-            double maxLinkSpeedMbps = 100.0;
-            int usagePercent = (int) Math.min(100, (mbps / maxLinkSpeedMbps) * 100);
-
-            return Math.max(0, usagePercent);
+            double maxSpeed = 100.0; // assumed
+            return (int) Math.min(100, (mbps / maxSpeed) * 100);
 
         } catch (Exception e) {
-            e.printStackTrace();
             return 0;
         }
     }
+    private static int getWifiUsageLinux() {
+        try {
+            String iface = "wlan0";
+            File rxFile = new File("/sys/class/net/" + iface + "/statistics/rx_bytes");
+            File txFile = new File("/sys/class/net/" + iface + "/statistics/tx_bytes");
+
+            if (!rxFile.exists()) return 0;
+
+            long rxBytes = Long.parseLong(new String(java.nio.file.Files.readAllBytes(rxFile.toPath())).trim());
+            long txBytes = Long.parseLong(new String(java.nio.file.Files.readAllBytes(txFile.toPath())).trim());
+
+            long now = System.currentTimeMillis();
+            long timeDiff = now - lastCheckTime;
+
+            if (lastRxBytes == 0) {
+                lastRxBytes = rxBytes;
+                lastTxBytes = txBytes;
+                lastCheckTime = now;
+                return 0;
+            }
+
+            long rxDiff = rxBytes - lastRxBytes;
+            long txDiff = txBytes - lastTxBytes;
+
+            lastRxBytes = rxBytes;
+            lastTxBytes = txBytes;
+            lastCheckTime = now;
+
+            double bytesPerSec = (rxDiff + txDiff) * 1000.0 / timeDiff;
+            double mbps = bytesPerSec * 8 / (1024 * 1024);
+
+            double maxSpeed = 100.0; // customizable
+            return (int) Math.min(100, (mbps / maxSpeed) * 100);
+
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    
+    
 }
